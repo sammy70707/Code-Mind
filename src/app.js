@@ -1,5 +1,5 @@
 import { createMockResponse } from './data/mockResponses.js'
-import { readConversations, readSettings, storeConversations, storeSettings } from './utils/storage.js'
+import { readConversations, readProjects, readSettings, storeConversations, storeProjects, storeSettings } from './utils/storage.js'
 
 const root = document.querySelector('#app')
 const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -7,8 +7,13 @@ const timestamp = () => new Date().toISOString()
 const wait = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration))
 const state = {
   conversations: readConversations(),
+  projects: readProjects(),
   settings: readSettings(),
   activeId: null,
+  currentProjectId: null,
+  selectedProjectId: null,
+  projectInstructionsDraft: '',
+  projectModalOpen: false,
   collapsed: false,
   mobileOpen: false,
   settingsOpen: false,
@@ -28,6 +33,18 @@ const state = {
   tokenizerRuntimePromise: null,
   attachments: [],
   copied: '',
+}
+
+function startProjectChat() {
+  state.view = 'chat'
+  state.activeId = null
+  state.currentProjectId = state.selectedProjectId
+  state.mobileOpen = false
+  state.draft = ''
+  state.attachments = []
+  state.menuId = null
+  render()
+  root.querySelector('[data-input="draft"]')?.focus()
 }
 
 const icons = {
@@ -53,6 +70,7 @@ const icons = {
   more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
   paperclip: '<path d="m21.4 11.1-8.5 8.5a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
   pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/>',
+  plug: '<path d="M12 22v-5"/><path d="M9 8V2m6 6V2"/><path d="M18 8v4a6 6 0 0 1-12 0V8z"/>',
   plus: '<path d="M12 5v14m-7-7h14"/>',
   rotate: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5m4-1v5l3 2"/>',
   search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
@@ -61,6 +79,7 @@ const icons = {
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2m10-10h-2M4 12H2m17.1 7.1-1.4-1.4M6.3 6.3 4.9 4.9m14.2 0-1.4 1.4M6.3 17.7l-1.4 1.4"/>',
   trash: '<path d="M3 6h18m-2 0-.9 14H5.9L5 6m4 0V4h6v2m-5 4v6m4-6v6"/>',
   user: '<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="8" r="5"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 10h18"/>',
   x: '<path d="m18 6-12 12M6 6l12 12"/>',
 }
 
@@ -197,7 +216,7 @@ function renderSidebar() {
     const entries = conversations.filter((conversation) => dateGroup(conversation.updatedAt) === group)
     if (!entries.length) return ''
     return `<section class="history-group">${state.collapsed ? '' : `<h2>${group}</h2>`}${entries.map((conversation) => `
-      <div class="conversation-item-wrap${state.view !== 'tokenizer' && state.activeId === conversation.id ? ' is-active' : ''}">
+      <div class="conversation-item-wrap${state.view === 'chat' && state.activeId === conversation.id ? ' is-active' : ''}">
         <button class="conversation-item" type="button" data-action="select-conversation" data-id="${escapeHtml(conversation.id)}" title="${escapeHtml(conversation.title)}">
           ${icon('message', 15)}${state.collapsed ? '' : `<span>${escapeHtml(conversation.title)}</span>`}
         </button>
@@ -212,7 +231,8 @@ function renderSidebar() {
         <button type="button" class="icon-button sidebar-mobile-close" data-action="close-mobile" aria-label="Close sidebar">${icon('x', 18)}</button>
       </div>
       <button type="button" class="new-chat-button${state.collapsed ? ' new-chat-button--icon' : ''}" data-action="new-chat" title="New chat">${icon('plus', 17)}${state.collapsed ? '' : '<span>New chat</span><kbd>Ctrl ⇧ N</kbd>'}</button>
-      <button type="button" class="sidebar-nav-button tokenizer-nav-button${state.view === 'tokenizer' ? ' is-active' : ''}" data-action="open-tokenizer" aria-current="${state.view === 'tokenizer' ? 'page' : 'false'}" title="BPE Tokenizer">${icon('code', 16)}${state.collapsed ? '' : '<span>BPE Tokenizer</span>'}</button>
+      <button type="button" class="sidebar-nav-button${state.view === 'plugins' ? ' is-active' : ''}" data-action="open-plugins" aria-current="${state.view === 'plugins' ? 'page' : 'false'}" title="Plugins">${icon('plug', 16)}${state.collapsed ? '' : '<span>Plugins</span>'}</button>
+      <button type="button" class="sidebar-nav-button${state.view === 'projects' ? ' is-active' : ''}" data-action="open-projects" aria-current="${state.view === 'projects' ? 'page' : 'false'}" title="Projects">${icon('folder', 16)}${state.collapsed ? '' : '<span>Projects</span>'}</button>
       ${state.collapsed ? '' : `<label class="sidebar-search">${icon('search', 15)}<input type="search" data-input="search" value="${escapeHtml(state.search)}" placeholder="Search conversations"></label>`}
       <div class="history-heading">${state.collapsed ? `<span class="collapsed-history-icon">${icon('message', 16)}</span>` : '<span>YOUR WORKSPACE</span><button type="button" class="history-add" data-action="new-chat" aria-label="New conversation">' + icon('plus', 15) + '</button>'}</div>
       <nav class="conversation-list" aria-label="Conversation history">${history}${conversations.length === 0 && state.search.trim() && !state.collapsed ? `<div class="search-empty">${icon('search', 17)}<span>No conversations found</span><small>Try another search term.</small></div>` : ''}</nav>
@@ -224,7 +244,8 @@ function renderSidebar() {
 }
 
 function renderHeader(conversation) {
-  const title = state.view === 'tokenizer' ? 'BPE Tokenizer' : conversation?.title
+  const pageTitles = { tokenizer: 'BPE Tokenizer', plugins: 'Plugins', projects: 'Projects' }
+  const title = pageTitles[state.view] || conversation?.title
   return `<header class="chat-header">
     <div class="chat-header__left">
       <button type="button" class="icon-button header-sidebar-toggle" data-action="toggle-sidebar" aria-label="${state.collapsed ? 'Expand sidebar' : 'Collapse sidebar'}" title="${state.collapsed ? 'Show sidebar' : 'Hide sidebar'}">${icon('chevronsLeft', 18)}</button>
@@ -267,6 +288,29 @@ function renderTokenizer() {
     ${state.tokenizerError ? `<div class="tokenizer-error" role="alert">${escapeHtml(state.tokenizerError)}</div>` : ''}
     ${results}
   </div>`
+}
+
+function renderWorkspacePage(view) {
+  if (view === 'plugins') {
+    return `<section class="workspace-page" aria-labelledby="workspace-page-title"><div class="workspace-page__icon">${icon('plug', 22)}</div><span class="tokenizer-eyebrow">YOUR WORKSPACE</span><h1 id="workspace-page-title">Plugins</h1><p>Connect tools and extend your coding workspace.</p><div class="workspace-page__empty">Nothing here yet.</div></section>`
+  }
+
+  const project = state.projects.find((item) => item.id === state.selectedProjectId)
+  if (!project) {
+    const cards = state.projects.map((item) => {
+      const count = state.conversations.filter((conversation) => conversation.projectId === item.id).length
+      return `<article class="project-card"><button class="project-card__open" type="button" data-action="open-project" data-id="${escapeHtml(item.id)}"><span class="project-card__icon">${icon('folder', 18)}</span><span class="project-card__copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description || 'No description')}</small><span>${count} ${count === 1 ? 'conversation' : 'conversations'}</span></span></button><button class="project-card__delete" type="button" data-action="delete-project" data-id="${escapeHtml(item.id)}" aria-label="Delete ${escapeHtml(item.name)}" title="Delete project">${icon('trash', 15)}</button></article>`
+    }).join('')
+    return `<section class="workspace-page workspace-page--projects" aria-labelledby="workspace-page-title"><div class="workspace-page__heading"><div><span class="tokenizer-eyebrow">YOUR WORKSPACE</span><h1 id="workspace-page-title">Projects</h1><p>Organize conversations and keep project-specific guidance together.</p></div><button class="project-primary-button" type="button" data-action="create-project">${icon('plus', 15)}<span>New project</span></button></div>${cards ? `<div class="project-grid">${cards}</div>` : `<div class="workspace-page__empty project-empty"><div><span class="workspace-page__icon">${icon('folder', 22)}</span><strong>No projects yet</strong><p>Create a project to group related conversations and save instructions for your work.</p><button class="project-primary-button" type="button" data-action="create-project">${icon('plus', 15)}<span>Create your first project</span></button></div></div>`}</section>`
+  }
+
+  const projectConversations = state.conversations
+    .filter((conversation) => conversation.projectId === project.id)
+    .sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt))
+  const availableConversations = state.conversations.filter((conversation) => !conversation.projectId)
+  const conversationRows = projectConversations.map((conversation) => `<div class="project-conversation"><button type="button" class="project-conversation__open" data-action="select-conversation" data-id="${escapeHtml(conversation.id)}">${icon('message', 15)}<span>${escapeHtml(conversation.title)}</span><small>${escapeHtml(dateGroup(conversation.updatedAt))}</small></button><button type="button" class="project-conversation__remove" data-action="remove-project-conversation" data-id="${escapeHtml(conversation.id)}" aria-label="Remove ${escapeHtml(conversation.title)} from project">${icon('x', 14)}</button></div>`).join('')
+  const conversationOptions = availableConversations.map((conversation) => `<option value="${escapeHtml(conversation.id)}">${escapeHtml(conversation.title)}</option>`).join('')
+  return `<section class="workspace-page workspace-page--projects project-detail" aria-labelledby="workspace-page-title"><button type="button" class="project-back-button" data-action="back-to-projects">${icon('chevronsLeft', 15)}<span>All projects</span></button><div class="project-detail__heading"><span class="workspace-page__icon">${icon('folder', 22)}</span><div><span class="tokenizer-eyebrow">PROJECT</span><h1 id="workspace-page-title">${escapeHtml(project.name)}</h1><p>${escapeHtml(project.description || 'No description')}</p></div></div><div class="project-detail__actions"><button class="project-primary-button" type="button" data-action="new-project-chat">${icon('plus', 15)}<span>New project chat</span></button>${conversationOptions ? `<label class="project-attach-control"><span>Add existing chat</span><select data-input="project-conversation" aria-label="Add existing conversation to project"><option value="">Choose a conversation…</option>${conversationOptions}</select></label>` : ''}</div><section class="project-section"><div class="project-section__heading"><div><h2>Project instructions</h2><p>Guidance to keep with this project.</p></div><button class="project-secondary-button" type="button" data-action="save-project-instructions">${icon('check', 14)}<span>Save instructions</span></button></div><textarea class="project-instructions" data-input="project-instructions" placeholder="For example: Use TypeScript, follow the existing component patterns, and include tests." maxlength="3000">${escapeHtml(state.projectInstructionsDraft)}</textarea><small class="project-note">Saved on this device. The current demo assistant does not yet apply these instructions to its generated replies.</small></section><section class="project-section"><div class="project-section__heading"><div><h2>Conversations</h2><p>${projectConversations.length} ${projectConversations.length === 1 ? 'conversation' : 'conversations'} in this project.</p></div></div>${conversationRows || '<div class="project-conversations-empty">Start a project chat or add an existing conversation.</div>'}</section></section>`
 }
 
 function loadPyodideScript() {
@@ -369,6 +413,9 @@ function settingRow(title, description, key) {
 }
 
 function renderModal() {
+  if (state.projectModalOpen) {
+    return `<div class="modal-backdrop" data-action="backdrop" role="presentation"><section class="modal-card project-modal" role="dialog" aria-modal="true" aria-label="Create project"><div class="modal-header"><h2>Create a project</h2><button type="button" class="icon-button" data-action="close-modal" aria-label="Close">${icon('x', 18)}</button></div><form class="project-form" data-form="create-project"><label>Project name<input name="name" required maxlength="60" placeholder="e.g. Website redesign"></label><label>Description <span>Optional</span><input name="description" maxlength="180" placeholder="What are you working on?"></label><label>Project instructions <span>Optional</span><textarea name="instructions" maxlength="3000" placeholder="Add conventions, goals, or context for this project."></textarea></label><div class="project-form__actions"><button class="project-secondary-button" type="button" data-action="close-modal">Cancel</button><button class="project-primary-button" type="submit">${icon('plus', 15)}<span>Create project</span></button></div></form></section></div>`
+  }
   if (!state.settingsOpen && !state.helpOpen) return ''
   const title = state.settingsOpen ? 'Settings' : 'Help & keyboard shortcuts'
   const content = state.settingsOpen
@@ -393,9 +440,14 @@ function render() {
   const selection = focused === 'draft' || focused === 'search' || focused === 'tokenizer-text'
     ? [document.activeElement.selectionStart, document.activeElement.selectionEnd]
     : null
-  root.innerHTML = `<div class="app-shell${state.settings.compactMode ? ' app-shell--compact' : ''}">${renderSidebar()}<main class="main-panel">${renderHeader(active)}${state.view === 'tokenizer' ? renderTokenizer() : `<div class="chat-stage${active ? ' chat-stage--conversation' : ''}">
-    ${active ? `<div class="message-scroll-area"><div class="message-list">${active.messages.map(renderMessage).join('')}<div data-message-end></div></div></div><div class="composer-dock">${renderComposer(busy)}</div>` : `${renderWelcome()}<div class="welcome-composer">${renderComposer(false)}</div>`}
-    </div>`}</main>${renderModal()}</div>`
+  const pageContent = state.view === 'tokenizer'
+    ? renderTokenizer()
+    : state.view === 'plugins' || state.view === 'projects'
+      ? renderWorkspacePage(state.view)
+      : `<div class="chat-stage${active ? ' chat-stage--conversation' : ''}">
+        ${active ? `<div class="message-scroll-area"><div class="message-list">${active.messages.map(renderMessage).join('')}<div data-message-end></div></div></div><div class="composer-dock">${renderComposer(busy)}</div>` : `${renderWelcome()}<div class="welcome-composer">${renderComposer(false)}</div>`}
+        </div>`
+  root.innerHTML = `<div class="app-shell${state.settings.compactMode ? ' app-shell--compact' : ''}">${renderSidebar()}<main class="main-panel">${renderHeader(active)}${pageContent}</main>${renderModal()}</div>`
   if (focused) {
     const field = root.querySelector(`[data-input="${focused}"]`)
     field?.focus()
@@ -403,6 +455,7 @@ function render() {
   }
   applyTheme()
   storeConversations(state.conversations)
+  storeProjects(state.projects)
   storeSettings(state.settings)
   const messageScrollArea = root.querySelector('.message-scroll-area')
   if (messageScrollArea && state.busyIds.size) {
@@ -487,6 +540,7 @@ function sendMessage() {
       title,
       updatedAt: createdAt,
       messages: [],
+      ...(state.currentProjectId ? { projectId: state.currentProjectId } : {}),
     })
     state.activeId = conversationId
   }
@@ -510,6 +564,7 @@ function sendMessage() {
 function startNewChat() {
   state.view = 'chat'
   state.activeId = null
+  state.currentProjectId = null
   state.mobileOpen = false
   state.draft = ''
   state.attachments = []
@@ -588,14 +643,60 @@ root.addEventListener('click', (event) => {
   switch (action) {
     case 'new-chat': startNewChat(); break
     case 'open-tokenizer': state.view = 'tokenizer'; state.mobileOpen = false; state.headerMenuOpen = false; render(); break
+    case 'open-plugins': state.view = 'plugins'; state.mobileOpen = false; state.headerMenuOpen = false; render(); break
+    case 'open-projects': state.view = 'projects'; state.mobileOpen = false; state.headerMenuOpen = false; render(); break
+    case 'create-project': state.projectModalOpen = true; render(); root.querySelector('[name="name"]')?.focus(); break
+    case 'close-modal': state.projectModalOpen = false; state.settingsOpen = false; state.helpOpen = false; render(); break
+    case 'open-project': {
+      state.selectedProjectId = id
+      state.projectInstructionsDraft = state.projects.find((project) => project.id === id)?.instructions || ''
+      render()
+      break
+    }
+    case 'back-to-projects': state.selectedProjectId = null; render(); break
+    case 'new-project-chat': startProjectChat(); break
+    case 'save-project-instructions': {
+      state.projects = state.projects.map((project) => project.id === state.selectedProjectId
+        ? { ...project, instructions: state.projectInstructionsDraft }
+        : project)
+      render()
+      break
+    }
+    case 'remove-project-conversation':
+      state.conversations = state.conversations.map((conversation) => conversation.id === id
+        ? { ...conversation, projectId: null }
+        : conversation)
+      render()
+      break
+    case 'delete-project': {
+      const project = state.projects.find((item) => item.id === id)
+      if (!project || !window.confirm(`Delete "${project.name}"? Its conversations will be kept outside the project.`)) break
+      state.projects = state.projects.filter((item) => item.id !== id)
+      state.conversations = state.conversations.map((conversation) => conversation.projectId === id
+        ? { ...conversation, projectId: null }
+        : conversation)
+      if (state.selectedProjectId === id) state.selectedProjectId = null
+      if (state.currentProjectId === id) state.currentProjectId = null
+      render()
+      break
+    }
     case 'run-tokenizer': runTokenizer(); break
     case 'toggle-sidebar': toggleSidebar(); break
     case 'close-mobile': state.mobileOpen = false; render(); break
     case 'open-settings': state.settingsOpen = true; state.helpOpen = false; state.userMenuOpen = false; render(); break
     case 'open-help': state.helpOpen = true; state.settingsOpen = false; state.headerMenuOpen = false; render(); break
-    case 'close-modal':
-    case 'backdrop': state.settingsOpen = false; state.helpOpen = false; render(); break
-    case 'select-conversation': state.view = 'chat'; state.activeId = id; state.mobileOpen = false; state.draft = ''; state.attachments = []; render(); break
+    case 'backdrop': state.projectModalOpen = false; state.settingsOpen = false; state.helpOpen = false; render(); break
+    case 'select-conversation': {
+      const conversation = state.conversations.find((item) => item.id === id)
+      state.view = 'chat'
+      state.activeId = id
+      state.currentProjectId = conversation?.projectId || null
+      state.mobileOpen = false
+      state.draft = ''
+      state.attachments = []
+      render()
+      break
+    }
     case 'conversation-menu': state.menuId = state.menuId === id ? null : id; render(); break
     case 'rename': state.menuId = null; state.headerMenuOpen = false; renameConversation(id); break
     case 'delete': state.menuId = null; state.headerMenuOpen = false; deleteConversation(id); break
@@ -638,12 +739,20 @@ root.addEventListener('input', (event) => {
     state.tokenizerResult = null
     state.tokenizerError = ''
     render()
+  } else if (input.dataset.input === 'project-instructions') {
+    state.projectInstructionsDraft = input.value
   }
 })
 
 root.addEventListener('change', (event) => {
   const input = event.target
   if (input.dataset.input === 'files' || input.dataset.input === 'images') addFiles(input.files)
+  if (input.dataset.input === 'project-conversation' && input.value) {
+    state.conversations = state.conversations.map((conversation) => conversation.id === input.value
+      ? { ...conversation, projectId: state.selectedProjectId }
+      : conversation)
+    render()
+  }
   if (input.dataset.setting) {
     state.settings[input.dataset.setting] = input.type === 'checkbox' ? input.checked : input.value
     render()
@@ -654,12 +763,37 @@ root.addEventListener('change', (event) => {
   }
 })
 
+root.addEventListener('submit', (event) => {
+  const form = event.target
+  if (form.dataset.form !== 'create-project') return
+  event.preventDefault()
+  const formData = new FormData(form)
+  const name = String(formData.get('name') || '').trim()
+  if (!name) {
+    form.querySelector('[name="name"]')?.focus()
+    return
+  }
+  const project = {
+    id: createId(),
+    name,
+    description: String(formData.get('description') || '').trim(),
+    instructions: String(formData.get('instructions') || '').trim(),
+    createdAt: timestamp(),
+  }
+  state.projects.unshift(project)
+  state.selectedProjectId = project.id
+  state.projectInstructionsDraft = project.instructions
+  state.projectModalOpen = false
+  render()
+})
+
 root.addEventListener('keydown', (event) => {
   if (event.target.matches('[data-input="draft"]') && event.key === 'Enter' && !event.shiftKey && state.settings.enterToSend) {
     event.preventDefault()
     sendMessage()
   }
   if (event.key === 'Escape') {
+    state.projectModalOpen = false
     state.settingsOpen = false
     state.helpOpen = false
     state.mobileOpen = false

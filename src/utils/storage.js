@@ -1,5 +1,6 @@
 const CONVERSATIONS_KEY = 'codemind.conversations.v1'
 const SETTINGS_KEY = 'codemind.settings.v1'
+const PROJECTS_KEY = 'codemind.projects.v1'
 
 export const defaultSettings = {
   appearance: 'dark',
@@ -29,6 +30,11 @@ export function readConversations() {
     : []
 }
 
+export function readProjects() {
+  const projects = readStoredValue(PROJECTS_KEY, null)
+  return Array.isArray(projects) ? projects : []
+}
+
 export function readSettings() {
   return { ...defaultSettings, ...readStoredValue(SETTINGS_KEY, {}) }
 }
@@ -39,6 +45,16 @@ export function storeConversations(conversations) {
     return true
   } catch (error) {
     console.error('Could not save CodeMind conversations to local storage.', error)
+    return false
+  }
+}
+
+export function storeProjects(projects) {
+  try {
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects))
+    return true
+  } catch (error) {
+    console.error('Could not save CodeMind projects to local storage.', error)
     return false
   }
 }

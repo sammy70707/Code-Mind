@@ -596,6 +596,456 @@ textarea:focus-visible {
   overflow-y: auto;
 }
 
+.workspace-page {
+  width: min(100% - 56px, 720px);
+  margin: 58px auto 0;
+  color: var(--text);
+}
+
+.workspace-page--projects {
+  flex: 1;
+  min-height: 0;
+  width: min(100% - 56px, 860px);
+  margin-top: 38px;
+  padding-bottom: 48px;
+  overflow-y: auto;
+}
+
+.workspace-page__heading,
+.project-detail__actions,
+.project-section__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.workspace-page__heading h1 {
+  margin-top: 7px;
+}
+
+.workspace-page__heading p,
+.project-detail__heading p,
+.project-section__heading p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.project-primary-button,
+.project-secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 35px;
+  padding: 0 12px;
+  border: 1px solid rgba(197, 242, 119, .3);
+  border-radius: 8px;
+  color: var(--accent);
+  background: rgba(197, 242, 119, .075);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 620;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.project-primary-button:hover {
+  border-color: rgba(197, 242, 119, .52);
+  background: rgba(197, 242, 119, .13);
+}
+
+.project-secondary-button {
+  border-color: var(--border);
+  color: var(--text-muted);
+  background: var(--panel);
+}
+
+.project-secondary-button:hover {
+  color: var(--text);
+  background: var(--panel-hover);
+}
+
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.project-card {
+  position: relative;
+  display: flex;
+  min-height: 115px;
+  padding: 15px 38px 15px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  transition: border-color .16s, background .16s;
+}
+
+.project-card:hover {
+  border-color: var(--border-strong, var(--border));
+  background: var(--panel-hover);
+}
+
+.project-card__open {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-card__icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--accent);
+  background: var(--app-bg);
+}
+
+.project-card__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.project-card__copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card__copy small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card__copy > span {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.project-card__delete,
+.project-conversation__remove {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+}
+
+.project-card__delete {
+  position: absolute;
+  top: 9px;
+  right: 8px;
+}
+
+.project-card__delete:hover,
+.project-conversation__remove:hover {
+  color: var(--danger, #ef7777);
+  background: var(--panel-active);
+}
+
+.project-empty {
+  min-height: 245px;
+  margin-top: 27px;
+  text-align: center;
+}
+
+.project-empty > div {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  padding: 20px;
+}
+
+.project-empty .workspace-page__icon {
+  margin: 0 0 4px;
+}
+
+.project-empty strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.project-empty p {
+  max-width: 340px;
+  margin: 0 0 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.project-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 23px;
+  padding: 5px 0;
+  border: 0;
+  color: var(--text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.project-back-button:hover {
+  color: var(--text);
+}
+
+.project-detail__heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.project-detail__heading .workspace-page__icon {
+  flex: 0 0 44px;
+  margin: 0;
+}
+
+.project-detail__heading h1 {
+  margin: 4px 0;
+}
+
+.project-detail__actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 23px;
+}
+
+.project-attach-control {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.project-attach-control select {
+  max-width: min(280px, 48vw);
+  min-height: 35px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--panel);
+  font: inherit;
+  font-size: 10px;
+}
+
+.project-section {
+  margin-top: 27px;
+  padding: 17px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.project-section__heading {
+  margin-bottom: 12px;
+}
+
+.project-section__heading h2 {
+  margin: 0 0 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.project-instructions,
+.project-form input,
+.project-form textarea {
+  width: 100%;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--app-bg);
+  font: inherit;
+  font-size: 11px;
+}
+
+.project-instructions {
+  display: block;
+  min-height: 105px;
+  resize: vertical;
+  padding: 10px;
+  line-height: 1.6;
+}
+
+.project-instructions::placeholder,
+.project-form input::placeholder,
+.project-form textarea::placeholder {
+  color: var(--text-dim);
+}
+
+.project-note {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-dim);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.project-conversation {
+  display: flex;
+  align-items: center;
+  min-height: 39px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.project-conversation__open {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  padding: 8px 3px;
+  border: 0;
+  color: var(--text-muted);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-conversation__open > svg {
+  flex: 0 0 15px;
+  color: var(--text-dim);
+}
+
+.project-conversation__open > span {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-conversation__open small {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.project-conversation__remove {
+  flex: 0 0 27px;
+}
+
+.project-conversations-empty {
+  padding: 16px 3px 4px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.project-modal {
+  width: min(100%, 480px);
+}
+
+.project-form {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+.project-form > label {
+  display: grid;
+  gap: 7px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.project-form > label > span {
+  display: inline;
+  color: var(--text-dim);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.project-form input {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.project-form textarea {
+  min-height: 85px;
+  resize: vertical;
+  padding: 9px 10px;
+  line-height: 1.5;
+}
+
+.project-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.workspace-page__icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 20px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--accent);
+  background: var(--panel);
+}
+
+.workspace-page h1 {
+  margin: 7px 0 8px;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -.7px;
+}
+
+.workspace-page > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.workspace-page__empty {
+  display: grid;
+  min-height: 160px;
+  margin-top: 30px;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--text-dim);
+  background: var(--panel);
+  font-size: 12px;
+}
+
 .tokenizer-intro,
 .tokenizer-input-panel,
 .tokenizer-results {
