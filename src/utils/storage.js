@@ -23,15 +23,19 @@ export function readStoredValue(key, fallback) {
   }
 }
 
-export function readConversations() {
-  const conversations = readStoredValue(CONVERSATIONS_KEY, null)
+function scopedKey(key, accountId) {
+  return accountId ? `${key}.${accountId}` : key
+}
+
+export function readConversations(accountId) {
+  const conversations = readStoredValue(scopedKey(CONVERSATIONS_KEY, accountId), null)
   return Array.isArray(conversations)
     ? conversations.filter((conversation) => !conversation.id?.startsWith('sample-'))
     : []
 }
 
-export function readProjects() {
-  const projects = readStoredValue(PROJECTS_KEY, null)
+export function readProjects(accountId) {
+  const projects = readStoredValue(scopedKey(PROJECTS_KEY, accountId), null)
   return Array.isArray(projects) ? projects : []
 }
 
@@ -39,9 +43,9 @@ export function readSettings() {
   return { ...defaultSettings, ...readStoredValue(SETTINGS_KEY, {}) }
 }
 
-export function storeConversations(conversations) {
+export function storeConversations(conversations, accountId) {
   try {
-    localStorage.setItem(CONVERSATIONS_KEY, JSON.stringify(conversations))
+    localStorage.setItem(scopedKey(CONVERSATIONS_KEY, accountId), JSON.stringify(conversations))
     return true
   } catch (error) {
     console.error('Could not save CodeMind conversations to local storage.', error)
@@ -49,9 +53,9 @@ export function storeConversations(conversations) {
   }
 }
 
-export function storeProjects(projects) {
+export function storeProjects(projects, accountId) {
   try {
-    localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects))
+    localStorage.setItem(scopedKey(PROJECTS_KEY, accountId), JSON.stringify(projects))
     return true
   } catch (error) {
     console.error('Could not save CodeMind projects to local storage.', error)

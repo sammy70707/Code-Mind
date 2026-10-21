@@ -1,4 +1,5 @@
 import { createMockResponse } from './data/mockResponses.js'
+import { getCurrentUser, loadWorkspace, saveProfile, saveWorkspace, signIn, signOut, signUp } from './utils/api.js'
 import { readConversations, readProjects, readSettings, storeConversations, storeProjects, storeSettings } from './utils/storage.js'
 
 const root = document.querySelector('#app')
@@ -6,9 +7,15 @@ const createId = () => `${Date.now().toString(36)}-${Math.random().toString(36).
 const timestamp = () => new Date().toISOString()
 const wait = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration))
 const state = {
-  conversations: readConversations(),
-  projects: readProjects(),
+  conversations: [],
+  projects: [],
   settings: readSettings(),
+  currentUser: null,
+  authLoading: true,
+  authMode: 'login',
+  authBusy: false,
+  authError: '',
+  authServiceError: '',
   activeId: null,
   currentProjectId: null,
   selectedProjectId: null,
@@ -33,6 +40,7 @@ const state = {
   tokenizerRuntimePromise: null,
   attachments: [],
   copied: '',
+  databaseStatus: { type: 'loading', message: 'Connecting to SQLite…' },
 }
 
 function startProjectChat() {
@@ -45,6 +53,169 @@ function startProjectChat() {
   state.menuId = null
   render()
   root.querySelector('[data-input="draft"]')?.focus()
+}
+
+let workspaceSaveTimer
+let workspaceSaveQueue = Promise.resolve()
+
+function scheduleWorkspaceSave() {
+  const accountId = state.currentUser?.id
+  if (!accountId) return
+  storeConversations(state.conversations, accountId)
+  storeProjects(state.projects, accountId)
+  window.clearTimeout(workspaceSaveTimer)
+  workspaceSaveTimer = window.setTimeout(() => {
+    workspaceSaveTimer = null
+    const snapshot = {
+      projects: state.projects,
+      conversations: state.conversations,
+    }
+    workspaceSaveQueue = workspaceSaveQueue
+      .catch(() => {})
+      .then(async () => {
+        state.databaseStatus = { type: 'saving', message: 'Saving to SQLite…' }
+        render()
+        await saveWorkspace(snapshot)
+        state.databaseStatus = { type: 'connected', message: 'SQLite connected' }
+        render()
+      })
+      .catch((error) => {
+        console.error('Could not save CodeMind workspace to SQLite.', error)
+        state.databaseStatus = { type: 'error', message: `Database save failed: ${error.message}` }
+        render()
+      })
+  }, 700)
+}
+
+async function initializeWorkspace() {
+  try {
+    const { user } = await getCurrentUser()
+    state.authLoading = false
+    if (!user) {
+      state.currentUser = null
+      state.authServiceError = ''
+      render()
+      return
+    }
+    state.currentUser = user
+    if (!user.name) {
+      state.authError = ''
+      render()
+      return
+    }
+    await loadUserWorkspace(user)
+  } catch (error) {
+    console.error('Could not restore the CodeMind sign-in session.', error)
+    state.authLoading = false
+    state.authServiceError = `Could not connect to the CodeMind API. Check that the development server is running. ${error.message}`
+    render()
+  }
+}
+
+async function loadUserWorkspace(user) {
+  state.currentUser = user
+  state.projects = readProjects(user.id)
+  state.conversations = readConversations(user.id)
+  state.authLoading = false
+  state.databaseStatus = { type: 'loading', message: 'Loading your workspace…' }
+  render()
+  try {
+    const workspace = await loadWorkspace()
+    if (!Array.isArray(workspace.projects) || !Array.isArray(workspace.conversations)) {
+      throw new Error('The workspace API returned an invalid response.')
+    }
+    state.projects = workspace.projects
+    state.conversations = workspace.conversations
+    storeProjects(state.projects, user.id)
+    storeConversations(state.conversations, user.id)
+    state.databaseStatus = { type: 'connected', message: 'SQLite connected' }
+  } catch (error) {
+    console.error('Could not load CodeMind workspace from SQLite.', error)
+    state.databaseStatus = {
+      type: 'error',
+      message: `Could not load workspace from SQLite. ${error.message}`,
+    }
+  }
+  render()
+}
+
+async function submitAuthentication(form) {
+  const formData = new FormData(form)
+  const credentials = {
+    email: String(formData.get('email') || '').trim(),
+    password: String(formData.get('password') || ''),
+  }
+  state.authBusy = true
+  state.authError = ''
+  render()
+  try {
+    const result = state.authMode === 'signup' ? await signUp(credentials) : await signIn(credentials)
+    state.currentUser = result.user
+    state.authServiceError = ''
+    state.authError = ''
+    if (result.user.name) {
+      await loadUserWorkspace(result.user)
+    }
+  } catch (error) {
+    console.error(`CodeMind ${state.authMode} failed.`, error)
+    state.authError = error.message
+  } finally {
+    state.authBusy = false
+    render()
+  }
+}
+
+async function submitProfile(form) {
+  const formData = new FormData(form)
+  const name = String(formData.get('name') || '').trim()
+  state.authBusy = true
+  state.authError = ''
+  render()
+  try {
+    const { user } = await saveProfile({ name })
+    await loadUserWorkspace(user)
+  } catch (error) {
+    console.error('Could not save the CodeMind profile name.', error)
+    state.authError = error.message
+  } finally {
+    state.authBusy = false
+    render()
+  }
+}
+
+async function logout() {
+  state.authBusy = true
+  state.authError = ''
+  render()
+  try {
+    if (workspaceSaveTimer) {
+      window.clearTimeout(workspaceSaveTimer)
+      workspaceSaveTimer = null
+      const snapshot = {
+        projects: state.projects,
+        conversations: state.conversations,
+      }
+      workspaceSaveQueue = workspaceSaveQueue
+        .catch(() => {})
+        .then(() => saveWorkspace(snapshot))
+    }
+    await workspaceSaveQueue
+    await signOut()
+    state.currentUser = null
+    state.projects = []
+    state.conversations = []
+    state.activeId = null
+    state.currentProjectId = null
+    state.selectedProjectId = null
+    state.view = 'chat'
+    state.authMode = 'login'
+  } catch (error) {
+    console.error('Could not sign out of CodeMind.', error)
+    state.authError = error.message
+  } finally {
+    state.authBusy = false
+    render()
+  }
 }
 
 const icons = {
@@ -238,7 +409,7 @@ function renderSidebar() {
       <nav class="conversation-list" aria-label="Conversation history">${history}${conversations.length === 0 && state.search.trim() && !state.collapsed ? `<div class="search-empty">${icon('search', 17)}<span>No conversations found</span><small>Try another search term.</small></div>` : ''}</nav>
       <div class="sidebar-bottom">
         <button type="button" class="sidebar-nav-button" data-action="open-help" title="Help & shortcuts">${icon('help', 17)}${state.collapsed ? '' : '<span>Help & shortcuts</span>'}</button>
-        <div class="sidebar-user"><span class="user-avatar">${icon('user', 16)}</span>${state.collapsed ? '' : '<span class="user-info"><strong>Workspace</strong><small>Personal space</small></span><div class="user-menu-wrap"><button type="button" class="user-menu" data-action="toggle-user-menu" title="Workspace options" aria-label="Workspace options" aria-expanded="' + state.userMenuOpen + '">' + icon('more', 18) + '</button>' + (state.userMenuOpen ? '<div class="user-menu-popover"><button type="button" data-action="open-settings">' + icon('settings', 15) + '<span>Settings</span></button></div>' : '') + '</div>'}</div>
+        <div class="sidebar-user"><span class="user-avatar">${icon('user', 16)}</span>${state.collapsed ? '' : `<span class="user-info"><strong>${escapeHtml(state.currentUser?.name || 'Workspace')}</strong><small>${escapeHtml(state.currentUser?.email || 'Personal space')}</small></span><div class="user-menu-wrap"><button type="button" class="user-menu" data-action="toggle-user-menu" title="Workspace options" aria-label="Workspace options" aria-expanded="${state.userMenuOpen}">${icon('more', 18)}</button>${state.userMenuOpen ? `<div class="user-menu-popover"><button type="button" data-action="open-settings">${icon('settings', 15)}<span>Settings</span></button><button type="button" data-action="logout" ${state.authBusy ? 'disabled' : ''}>${icon('user', 15)}<span>Sign out</span></button></div>` : ''}</div>`}</div>
       </div>
     </aside>`
 }
@@ -268,9 +439,20 @@ const suggestions = [
 
 function renderWelcome() {
   return `<section class="welcome-screen"><div class="welcome-content"><div class="eyebrow">YOUR SPACE TO THINK IN CODE</div>
-    <h1>Build anything</h1><p class="welcome-subtitle">Your AI coding workspace for building, debugging and understanding code.</p>
+    <h1>Welcome, ${escapeHtml(state.currentUser.name)}</h1><p class="welcome-subtitle">Your AI coding workspace for building, debugging and understanding code.</p>
     <div class="suggestion-grid">${suggestions.map((item) => `<button class="suggestion-card" type="button" data-action="suggestion" data-prompt="${encodeURIComponent(item.prompt)}"><span class="suggestion-icon">${icon(item.icon, 17)}</span><span class="suggestion-copy"><span class="suggestion-title">${item.title}</span><span class="suggestion-description">${item.description}</span></span>${icon('arrowUpRight', 15)}</button>`).join('')}</div>
     </div></section>`
+}
+
+function renderAuth() {
+  if (state.authLoading) {
+    return `<main class="auth-screen"><section class="auth-card"><span class="auth-brand-mark">${icon('code', 19)}</span><p class="auth-loading">Checking your account…</p></section></main>`
+  }
+  if (state.currentUser && !state.currentUser.name) {
+    return `<main class="auth-screen"><section class="auth-card"><span class="auth-brand-mark">${icon('code', 19)}</span><span class="tokenizer-eyebrow">ONE LAST STEP</span><h1>What should we call you?</h1><p class="auth-description">Your name will appear in your CodeMind workspace.</p><form data-form="profile" class="auth-form"><label for="profile-name">Your name</label><input id="profile-name" name="name" type="text" autocomplete="name" maxlength="80" required placeholder="Your name" ${state.authBusy ? 'disabled' : ''}>${state.authError ? `<p class="auth-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}<button class="auth-submit" type="submit" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Saving…' : 'Continue'}</button></form></section></main>`
+  }
+  const isSignup = state.authMode === 'signup'
+  return `<main class="auth-screen"><section class="auth-card"><span class="auth-brand-mark">${icon('code', 19)}</span><span class="tokenizer-eyebrow">YOUR AI CODING WORKSPACE</span><h1>${isSignup ? 'Create your account' : 'Welcome back'}</h1><p class="auth-description">${isSignup ? 'Sign up to save your projects and conversations.' : 'Sign in to continue to your workspace.'}</p>${state.authServiceError ? `<p class="auth-error" role="alert">${escapeHtml(state.authServiceError)}</p>` : ''}<form data-form="authentication" class="auth-form"><label for="auth-email">Email</label><input id="auth-email" name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com" ${state.authBusy ? 'disabled' : ''}><label for="auth-password">Password</label><input id="auth-password" name="password" type="password" autocomplete="${isSignup ? 'new-password' : 'current-password'}" minlength="${isSignup ? '8' : '1'}" maxlength="200" required placeholder="${isSignup ? 'At least 8 characters' : 'Your password'}" ${state.authBusy ? 'disabled' : ''}>${state.authError ? `<p class="auth-error" role="alert">${escapeHtml(state.authError)}</p>` : ''}<button class="auth-submit" type="submit" ${state.authBusy ? 'disabled' : ''}>${state.authBusy ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}</button></form><p class="auth-switch">${isSignup ? 'Already have an account?' : 'New to CodeMind?'} <button type="button" data-action="toggle-auth-mode" ${state.authBusy ? 'disabled' : ''}>${isSignup ? 'Sign in' : 'Create an account'}</button></p><p class="auth-security-note">Your password is stored securely by the CodeMind API.</p></section></main>`
 }
 
 function renderTokenizer() {
@@ -423,7 +605,7 @@ function renderModal() {
       <section class="settings-section"><div class="settings-section-heading"><h3>Interface</h3><p>Choose what works best for your workflow.</p></div>${settingRow('Compact mode', 'Tighten up spacing in conversations.', 'compactMode')}${settingRow('Show timestamps', 'See when each message was sent.', 'showTimestamps')}${settingRow('Show line numbers', 'Add line numbers to code blocks.', 'showLineNumbers')}</section>
       <section class="settings-section"><div class="settings-section-heading"><h3>Chat</h3><p>Adjust how messages are composed.</p></div>${settingRow('Enter to send', 'Use Enter to send and Shift + Enter for a new line.', 'enterToSend')}${settingRow('Streaming animation', 'Stream responses at a relaxed pace.', 'streamingAnimation')}${settingRow('Explain while writing code', 'Explain generated code when this preference is on.', 'explainWhileCoding')}${state.settings.explainWhileCoding ? `<label class="setting-row explanation-style-row"><span class="setting-copy"><strong>Explanation style</strong><small>Choose how code is explained.</small></span><select data-setting-select="explanationStyle" aria-label="Explanation style"><option value="brief" ${state.settings.explanationStyle === 'brief' ? 'selected' : ''}>Brief function summary</option><option value="line-by-line" ${state.settings.explanationStyle === 'line-by-line' ? 'selected' : ''}>Line by line</option></select></label>` : ''}</section>
       <div class="settings-local-note"><span>Your preferences are saved on this device only.</span></div></div>`
-    : `<div class="help-content"><p>Move through your CodeMind workspace a little faster.</p><div class="shortcut-row"><span>New conversation</span><kbd>Ctrl / ⌘ + Shift + N</kbd></div><div class="shortcut-row"><span>Search conversations</span><kbd>Ctrl / ⌘ + K</kbd></div><div class="shortcut-row"><span>Send message</span><kbd>${state.settings.enterToSend ? 'Enter' : 'Send button'}</kbd></div><div class="shortcut-row"><span>New line</span><kbd>${state.settings.enterToSend ? 'Shift + Enter' : 'Enter'}</kbd></div><div class="help-footer">CodeMind is a standalone frontend prototype. Your chats stay in this browser.</div></div>`
+    : `<div class="help-content"><p>Move through your CodeMind workspace a little faster.</p><div class="shortcut-row"><span>New conversation</span><kbd>Ctrl / ⌘ + Shift + N</kbd></div><div class="shortcut-row"><span>Search conversations</span><kbd>Ctrl / ⌘ + K</kbd></div><div class="shortcut-row"><span>Send message</span><kbd>${state.settings.enterToSend ? 'Enter' : 'Send button'}</kbd></div><div class="shortcut-row"><span>New line</span><kbd>${state.settings.enterToSend ? 'Shift + Enter' : 'Enter'}</kbd></div><div class="help-footer">Your projects and conversations are stored in a local SQLite database. Browser settings remain on this device.</div></div>`
   return `<div class="modal-backdrop" data-action="backdrop" role="presentation"><section class="modal-card ${state.settingsOpen ? 'settings-modal' : 'help-modal'}" role="dialog" aria-modal="true" aria-label="${title}"><div class="modal-header"><h2>${title}</h2><button type="button" class="icon-button" data-action="close-modal" aria-label="Close">${icon('x', 18)}</button></div>${content}</section></div>`
 }
 
@@ -434,6 +616,11 @@ function applyTheme() {
 }
 
 function render() {
+  if (state.authLoading || !state.currentUser || !state.currentUser.name) {
+    root.innerHTML = renderAuth()
+    applyTheme()
+    return
+  }
   const active = state.conversations.find((conversation) => conversation.id === state.activeId) || null
   const busy = active ? state.busyIds.has(active.id) : false
   const focused = document.activeElement?.dataset?.input
@@ -447,15 +634,16 @@ function render() {
       : `<div class="chat-stage${active ? ' chat-stage--conversation' : ''}">
         ${active ? `<div class="message-scroll-area"><div class="message-list">${active.messages.map(renderMessage).join('')}<div data-message-end></div></div></div><div class="composer-dock">${renderComposer(busy)}</div>` : `${renderWelcome()}<div class="welcome-composer">${renderComposer(false)}</div>`}
         </div>`
-  root.innerHTML = `<div class="app-shell${state.settings.compactMode ? ' app-shell--compact' : ''}">${renderSidebar()}<main class="main-panel">${renderHeader(active)}${pageContent}</main>${renderModal()}</div>`
+  const databaseStatus = state.databaseStatus
+    ? `<div class="database-status database-status--${state.databaseStatus.type}" role="${state.databaseStatus.type === 'error' ? 'alert' : 'status'}">${escapeHtml(state.databaseStatus.message)}</div>`
+    : ''
+  root.innerHTML = `<div class="app-shell${state.settings.compactMode ? ' app-shell--compact' : ''}">${renderSidebar()}<main class="main-panel">${renderHeader(active)}${databaseStatus}${pageContent}</main>${renderModal()}</div>`
   if (focused) {
     const field = root.querySelector(`[data-input="${focused}"]`)
     field?.focus()
     if (selection && field) field.setSelectionRange(...selection)
   }
   applyTheme()
-  storeConversations(state.conversations)
-  storeProjects(state.projects)
   storeSettings(state.settings)
   const messageScrollArea = root.querySelector('.message-scroll-area')
   if (messageScrollArea && state.busyIds.size) {
@@ -467,6 +655,7 @@ function render() {
 
 function updateConversation(conversationId, updater) {
   state.conversations = state.conversations.map((conversation) => conversation.id === conversationId ? updater(conversation) : conversation)
+  scheduleWorkspaceSave()
   render()
 }
 
@@ -590,6 +779,7 @@ function deleteConversation(conversationId) {
   if (!conversation || !window.confirm(`Delete "${conversation.title}"? This cannot be undone.`)) return
   state.conversations = state.conversations.filter((item) => item.id !== conversationId)
   if (state.activeId === conversationId) state.activeId = null
+  scheduleWorkspaceSave()
   render()
 }
 
@@ -642,6 +832,12 @@ root.addEventListener('click', (event) => {
   if (action === 'backdrop' && event.target !== target) return
   switch (action) {
     case 'new-chat': startNewChat(); break
+    case 'toggle-auth-mode':
+      state.authMode = state.authMode === 'login' ? 'signup' : 'login'
+      state.authError = ''
+      render()
+      break
+    case 'logout': logout(); break
     case 'open-tokenizer': state.view = 'tokenizer'; state.mobileOpen = false; state.headerMenuOpen = false; render(); break
     case 'open-plugins': state.view = 'plugins'; state.mobileOpen = false; state.headerMenuOpen = false; render(); break
     case 'open-projects': state.view = 'projects'; state.mobileOpen = false; state.headerMenuOpen = false; render(); break
@@ -659,6 +855,7 @@ root.addEventListener('click', (event) => {
       state.projects = state.projects.map((project) => project.id === state.selectedProjectId
         ? { ...project, instructions: state.projectInstructionsDraft }
         : project)
+      scheduleWorkspaceSave()
       render()
       break
     }
@@ -666,6 +863,7 @@ root.addEventListener('click', (event) => {
       state.conversations = state.conversations.map((conversation) => conversation.id === id
         ? { ...conversation, projectId: null }
         : conversation)
+      scheduleWorkspaceSave()
       render()
       break
     case 'delete-project': {
@@ -675,6 +873,7 @@ root.addEventListener('click', (event) => {
       state.conversations = state.conversations.map((conversation) => conversation.projectId === id
         ? { ...conversation, projectId: null }
         : conversation)
+      scheduleWorkspaceSave()
       if (state.selectedProjectId === id) state.selectedProjectId = null
       if (state.currentProjectId === id) state.currentProjectId = null
       render()
@@ -751,6 +950,7 @@ root.addEventListener('change', (event) => {
     state.conversations = state.conversations.map((conversation) => conversation.id === input.value
       ? { ...conversation, projectId: state.selectedProjectId }
       : conversation)
+    scheduleWorkspaceSave()
     render()
   }
   if (input.dataset.setting) {
@@ -765,6 +965,16 @@ root.addEventListener('change', (event) => {
 
 root.addEventListener('submit', (event) => {
   const form = event.target
+  if (form.dataset.form === 'authentication') {
+    event.preventDefault()
+    submitAuthentication(form)
+    return
+  }
+  if (form.dataset.form === 'profile') {
+    event.preventDefault()
+    submitProfile(form)
+    return
+  }
   if (form.dataset.form !== 'create-project') return
   event.preventDefault()
   const formData = new FormData(form)
@@ -784,6 +994,7 @@ root.addEventListener('submit', (event) => {
   state.selectedProjectId = project.id
   state.projectInstructionsDraft = project.instructions
   state.projectModalOpen = false
+  scheduleWorkspaceSave()
   render()
 })
 
@@ -823,3 +1034,4 @@ window.matchMedia('(prefers-color-scheme: light)').addEventListener?.('change', 
 })
 
 render()
+initializeWorkspace()
